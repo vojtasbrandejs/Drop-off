@@ -17,9 +17,11 @@ Dragging a file across desktops while holding the cursor down is awkward. Saving
 
 Drop-off is copy and paste, except it holds more than one thing and comes with you.
 
-Shake a file — an image, a folder, a zip, a video — and a shelf appears. It follows you between windows and Spaces, so you can open the conversation or folder you actually wanted first and paste afterwards.
+Shake a file — an image, a folder, a zip, a video, or a link — and a shelf appears. It follows you between windows and Spaces, so you can open the conversation or folder you actually wanted first and paste afterwards.
 
 Several shelves at once, several files in each. Keep a stack collapsed in the corner or open it and pick one item at a time.
+
+Media dragged straight from Messages keeps its original advertised format. If a provider gives a file the wrong extension, Drop-off corrects the name from the actual PNG, JPEG, GIF, SVG, HEIC, MP4, or MOV contents before you drag it back out.
 
 ## Download
 
@@ -55,10 +57,10 @@ Quit Drop-off, then use the DMG or Terminal command above again. Your shelves ar
 
 ## How it works
 
-1. Start dragging one or more files.
+1. Start dragging one or more files or web links.
 2. Shake the pointer quickly from side to side.
 3. Drop the files on the shelf that appears.
-4. Go where you were headed and drag the stack back out.
+4. Go where you were headed and drag the stack back out. Links are placed back on the pasteboard as normal URLs.
 
 Click the item count to open a stack and choose files individually. The arrow collapses a shelf. The menu-bar icon creates a shelf manually, closes them all, and controls Launch at Login.
 
@@ -70,7 +72,7 @@ Launch at Login is optional and off by default. If you enable it, macOS may ask 
 
 ## Troubleshooting
 
-- **No shelf appears:** make sure you are holding an actual file or folder, then shake the pointer quickly from side to side.
+- **No shelf appears:** make sure you are holding an actual file, folder, or web link, then shake the pointer quickly from side to side.
 - **Drop-off is not in the Dock:** it is a menu-bar utility. Look for the tray icon at the top of the screen.
 - **macOS blocks the first launch:** right-click `Drop-off.app` and choose **Open**.
 - **Launch at Login needs approval:** open **System Settings → General → Login Items** and allow Drop-off.
