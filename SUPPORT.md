@@ -6,6 +6,7 @@ Check the [installation, troubleshooting, and uninstall notes](README.md) first.
 
 - your macOS version,
 - your Drop-off version,
+- the complete Terminal output if installation or compilation failed,
 - what you expected to happen,
 - what happened instead,
 - the shortest steps that reproduce it.

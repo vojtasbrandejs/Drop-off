@@ -1,10 +1,18 @@
 # Drop-off
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packaging/AppIconDark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packaging/AppIconLight.png">
+    <img src="packaging/AppIconLight.png" alt="Drop-off app icon" width="150">
+  </picture>
+</p>
+
 <p align="center"><strong>A shelf that follows you. Shake a file in, paste anywhere.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/vojtasbrandejs/Drop-off/releases/latest/download/Drop-off.dmg"><strong>Download Drop-off for macOS</strong></a><br>
-  <sub>macOS 13+ · Apple Silicon and Intel</sub>
+  <a href="#install"><strong>Install Drop-off for macOS</strong></a><br>
+  <sub>One command · built locally · macOS 13+</sub>
 </p>
 
 <p align="center">
@@ -23,37 +31,31 @@ Several shelves at once, several files in each. Keep a stack collapsed in the co
 
 Media dragged straight from Messages keeps its original advertised format. If a provider gives a file the wrong extension, Drop-off corrects the name from the actual PNG, JPEG, GIF, SVG, HEIC, MP4, or MOV contents before you drag it back out.
 
-## Download
+## Install
 
-### Standard install
+Open Terminal, paste this command, and press Return:
 
-1. **[Download Drop-off.dmg](https://github.com/vojtasbrandejs/Drop-off/releases/latest/download/Drop-off.dmg)**.
-2. Open it and drag `Drop-off.app` onto the Applications shortcut.
-3. On the first launch, right-click Drop-off and choose **Open**.
-4. The tray icon appears in your menu bar.
-
-This downloads only the app. Do not use GitHub’s green **Code → Download ZIP** button — that button downloads the repository documents, not the app.
-
-### Terminal install
-
-Or download, verify, install, and open the latest release with one command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/vojtasbrandejs/Drop-off/main/scripts/install.sh | bash
+```sh
+curl -fsSL https://raw.githubusercontent.com/vojtasbrandejs/Drop-off/v1.1.1/scripts/install.sh | bash
 ```
 
-The installer fetches only the release app and its SHA-256 checksum. It does not clone the repository.
-You can [inspect the installer](scripts/install.sh) before running it.
+That is the entire installation. The command:
 
-Prefer a ZIP? **[Download only Drop-off.app.zip](https://github.com/vojtasbrandejs/Drop-off/releases/latest/download/Drop-off.app.zip)**.
+- downloads the pinned Drop-off source release from this repository,
+- builds the app locally on your Mac,
+- installs only `Drop-off.app` in Applications,
+- removes the temporary source and build files,
+- opens Drop-off in the menu bar.
 
-The current build is signed locally but not yet Apple-notarized, so macOS shows an unidentified-developer warning once. Only download Drop-off from this repository and verify the attached SHA-256 checksum.
+No prebuilt executable is downloaded and the installer does not disable or bypass Gatekeeper. You can [read the installer](scripts/install.sh) before running it.
 
-Requires macOS 13 Ventura or newer. The same download works on Apple Silicon and Intel Macs.
+Drop-off requires macOS 13 Ventura or newer and Apple’s free Command Line Tools. If the tools are missing, macOS offers to install them; finish that installation and run the same command again. The resulting app works on both Apple Silicon and Intel Macs.
 
 ## Updating
 
-Quit Drop-off, then use the DMG or Terminal command above again. Your shelves are temporary, so there is no library or account to migrate.
+Copy the current install command from this README again. It builds that release, closes the running copy, replaces it safely, and reopens Drop-off. It also removes the obsolete `Dropoff.app` name used by early development builds.
+
+Your shelves are temporary, so there is no library or account to migrate.
 
 ## How it works
 
@@ -74,7 +76,8 @@ Launch at Login is optional and off by default. If you enable it, macOS may ask 
 
 - **No shelf appears:** make sure you are holding an actual file, folder, or web link, then shake the pointer quickly from side to side.
 - **Drop-off is not in the Dock:** it is a menu-bar utility. Look for the tray icon at the top of the screen.
-- **macOS blocks the first launch:** right-click `Drop-off.app` and choose **Open**.
+- **The Command Line Tools window appeared:** complete Apple’s free installation, then run the install command again.
+- **The build stopped:** copy the complete Terminal output into a new issue so the failed step is visible.
 - **Launch at Login needs approval:** open **System Settings → General → Login Items** and allow Drop-off.
 
 For bugs and questions, see [Support](SUPPORT.md).
@@ -92,6 +95,21 @@ That is all. Drop-off installs no browser extension, launch daemon, account, dat
 Your normal files stay where they are. Drop-off remembers their locations and never uploads them. Fresh screenshots and other temporary drag items are copied into a local temporary folder and cleaned up with their shelf.
 
 No account. No analytics. No database. No network connection. See the plain-language [privacy details](PRIVACY.md).
+
+## For contributors
+
+Drop-off is native Swift and AppKit with no external dependencies.
+
+```sh
+git clone https://github.com/vojtasbrandejs/Drop-off.git
+cd Drop-off
+git config core.hooksPath .githooks
+./scripts/run-tests.sh
+./scripts/run-checks.sh
+./scripts/build-app.sh
+```
+
+The tracked pre-push hook runs the complete Swift test suite and standalone checks. A failing check blocks the push.
 
 ## Project information
 

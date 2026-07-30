@@ -2,6 +2,8 @@
 
 Drop-off is a local macOS utility. It has no account system, analytics, advertising, telemetry, cloud service, or network communication. It does not maintain a database or persist shelf contents between launches.
 
+The optional installation command connects to GitHub over HTTPS to download Drop-off's source code. It builds the app locally, deletes its temporary source and build folder, and does not send file contents, analytics, or personal data. The installed Drop-off app itself does not make network requests.
+
 ## Mouse events and drag detection
 
 While Drop-off is running, it installs local and global macOS event monitors for left mouse down, left mouse dragged, and left mouse up events. It uses the pointer coordinates and event timing only to recognize a shake during an active file drag and to place a shelf near the pointer.

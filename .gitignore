@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.swiftpm/
+dist/
+Drop-off.app/
+*.xcuserstate
+
+# macOS / cloud-sync conflict copies (e.g. "file 2.swift")
+* 2.*
+* 3.*

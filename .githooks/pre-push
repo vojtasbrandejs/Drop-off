@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+"$ROOT/scripts/run-tests.sh"
+"$ROOT/scripts/run-checks.sh"

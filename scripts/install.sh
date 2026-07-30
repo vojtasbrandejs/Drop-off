@@ -4,24 +4,37 @@ set -euo pipefail
 
 APP_NAME="Drop-off.app"
 EXECUTABLE_NAME="Drop-off"
+LEGACY_APP_NAME="Dropoff.app"
+BUNDLE_IDENTIFIER="com.vojtechbrandejs.dropoff"
 REPOSITORY="vojtasbrandejs/Drop-off"
-RELEASE_BASE_URL="${DROPOFF_RELEASE_BASE_URL:-https://github.com/$REPOSITORY/releases/latest/download}"
+SOURCE_REF="${DROPOFF_SOURCE_REF:-v1.1.1}"
+SOURCE_ARCHIVE_URL="${DROPOFF_SOURCE_ARCHIVE_URL:-https://github.com/$REPOSITORY/archive/refs/tags/$SOURCE_REF.tar.gz}"
 INSTALL_DIR="${DROPOFF_INSTALL_DIR:-/Applications}"
 LAUNCH_AFTER_INSTALL="${DROPOFF_LAUNCH_AFTER_INSTALL:-1}"
 TESTING="${DROPOFF_INSTALLER_TESTING:-0}"
-WORK_DIR="$(/usr/bin/mktemp -d -t drop-off-install)"
-ZIP_NAME="$APP_NAME.zip"
-CHECKSUM_NAME="$ZIP_NAME.sha256"
-EXTRACT_DIR="$WORK_DIR/extracted"
-SOURCE_APP="$EXTRACT_DIR/$APP_NAME"
+WORK_DIR="$(/usr/bin/mktemp -d -t drop-off-source-install)"
+ARCHIVE="$WORK_DIR/source.tar.gz"
+SOURCE_DIR="$WORK_DIR/source"
 TARGET_APP="$INSTALL_DIR/$APP_NAME"
+LEGACY_APP="$INSTALL_DIR/$LEGACY_APP_NAME"
 BACKUP_APP="$WORK_DIR/previous-$APP_NAME"
+BACKUP_LEGACY_APP="$WORK_DIR/previous-$LEGACY_APP_NAME"
 PREVIOUS_APP_MOVED=0
+LEGACY_APP_MOVED=0
+INSTALL_STARTED=0
+INSTALL_COMPLETE=0
 
 cleanup() {
-    if [[ "$PREVIOUS_APP_MOVED" == "1" && -e "$BACKUP_APP" ]]; then
-        /bin/rm -rf "$TARGET_APP"
-        /bin/mv "$BACKUP_APP" "$TARGET_APP" 2>/dev/null || true
+    if [[ "$INSTALL_COMPLETE" != "1" ]]; then
+        if [[ "$INSTALL_STARTED" == "1" ]]; then
+            /bin/rm -rf "$TARGET_APP"
+        fi
+        if [[ "$PREVIOUS_APP_MOVED" == "1" && -e "$BACKUP_APP" ]]; then
+            /bin/mv "$BACKUP_APP" "$TARGET_APP" 2>/dev/null || true
+        fi
+        if [[ "$LEGACY_APP_MOVED" == "1" && -e "$BACKUP_LEGACY_APP" ]]; then
+            /bin/mv "$BACKUP_LEGACY_APP" "$LEGACY_APP" 2>/dev/null || true
+        fi
     fi
     /bin/rm -rf "$WORK_DIR"
 }
@@ -58,48 +71,92 @@ download() {
             --output "$destination" \
             "$url"
     else
-        fail "refusing a non-HTTPS release URL"
+        fail "refusing a source URL that is not HTTPS"
     fi
+}
+
+bundle_identifier() {
+    /usr/libexec/PlistBuddy \
+        -c "Print :CFBundleIdentifier" \
+        "$1/Contents/Info.plist" \
+        2>/dev/null || true
+}
+
+stop_running_app() {
+    local process_name="$1"
+
+    /usr/bin/pkill -TERM -x "$process_name" 2>/dev/null || true
+    for _ in {1..30}; do
+        if ! /usr/bin/pgrep -x "$process_name" >/dev/null 2>&1; then
+            return
+        fi
+        /bin/sleep 0.1
+    done
+    fail "$process_name is still running; quit it and run the command again"
 }
 
 [[ "$(/usr/bin/uname -s)" == "Darwin" ]] || fail "macOS is required"
 MACOS_MAJOR="$(/usr/bin/sw_vers -productVersion | /usr/bin/cut -d. -f1)"
 (( MACOS_MAJOR >= 13 )) || fail "macOS 13 Ventura or newer is required"
 
-echo "Downloading the latest Drop-off release…"
-download "$RELEASE_BASE_URL/$ZIP_NAME" "$WORK_DIR/$ZIP_NAME"
-download "$RELEASE_BASE_URL/$CHECKSUM_NAME" "$WORK_DIR/$CHECKSUM_NAME"
-
-(
-    cd "$WORK_DIR"
-    /usr/bin/shasum -a 256 -c "$CHECKSUM_NAME"
-) >/dev/null || fail "the downloaded app did not match its published checksum"
-
-/bin/mkdir -p "$EXTRACT_DIR"
-/usr/bin/ditto -x -k "$WORK_DIR/$ZIP_NAME" "$EXTRACT_DIR"
-
-[[ -d "$SOURCE_APP" ]] || fail "the release archive does not contain $APP_NAME"
-[[ -x "$SOURCE_APP/Contents/MacOS/$EXECUTABLE_NAME" ]] \
-    || fail "the release archive is missing its executable"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SOURCE_APP/Contents/Info.plist")" \
-    == "com.vojtechbrandejs.dropoff" ]] \
-    || fail "the release archive has an unexpected bundle identifier"
-/usr/bin/codesign --verify --deep --strict "$SOURCE_APP" \
-    || fail "the downloaded app has an invalid code signature"
-/usr/bin/lipo "$SOURCE_APP/Contents/MacOS/$EXECUTABLE_NAME" \
-    -verify_arch arm64 x86_64 \
-    || fail "the downloaded app is not a Universal 2 build"
-
-if /usr/bin/pgrep -x "$EXECUTABLE_NAME" >/dev/null 2>&1; then
-    fail "Drop-off is running. Quit it from the menu bar, then run this command again."
+if ! /usr/bin/xcrun --find swift >/dev/null 2>&1; then
+    if [[ "$TESTING" != "1" ]]; then
+        /usr/bin/xcode-select --install 2>/dev/null || true
+    fi
+    fail "Apple Command Line Tools are required. Finish their free installation, then run this command again."
 fi
 
-/bin/mkdir -p "$INSTALL_DIR" \
-    || fail "could not create $INSTALL_DIR"
-[[ -w "$INSTALL_DIR" ]] \
-    || fail "cannot write to $INSTALL_DIR. Install manually with the DMG instead."
+echo "Downloading Drop-off source $SOURCE_REF from GitHub…"
+download "$SOURCE_ARCHIVE_URL" "$ARCHIVE"
+
+/bin/mkdir -p "$SOURCE_DIR"
+/usr/bin/tar -xzf "$ARCHIVE" --strip-components 1 -C "$SOURCE_DIR"
+
+for required_path in \
+    Package.swift \
+    Sources/DropOff \
+    packaging/Info.plist \
+    scripts/build-app.sh; do
+    [[ -e "$SOURCE_DIR/$required_path" ]] \
+        || fail "the source archive is missing $required_path"
+done
+
+echo "Building Drop-off locally on this Mac…"
+(
+    cd "$SOURCE_DIR"
+    DROPOFF_STAGING_ROOT="$WORK_DIR/staging" \
+        DROPOFF_PACKAGE_DISTRIBUTION=0 \
+        ./scripts/build-app.sh
+)
+
+SOURCE_APP="$SOURCE_DIR/.build/$APP_NAME"
+[[ -d "$SOURCE_APP" ]] || fail "the local build did not create $APP_NAME"
+[[ -x "$SOURCE_APP/Contents/MacOS/$EXECUTABLE_NAME" ]] \
+    || fail "the local build is missing its executable"
+[[ "$(bundle_identifier "$SOURCE_APP")" == "$BUNDLE_IDENTIFIER" ]] \
+    || fail "the local build has an unexpected bundle identifier"
+/usr/bin/codesign --verify --deep --strict "$SOURCE_APP" \
+    || fail "the local build has an invalid code signature"
+/usr/bin/lipo "$SOURCE_APP/Contents/MacOS/$EXECUTABLE_NAME" \
+    -verify_arch arm64 x86_64 \
+    || fail "the local build is not Universal 2"
+
+stop_running_app "$EXECUTABLE_NAME"
+stop_running_app "Dropoff"
+
+if [[ "$INSTALL_DIR" == "/Applications" && ! -w "$INSTALL_DIR" ]]; then
+    INSTALL_DIR="$HOME/Applications"
+    TARGET_APP="$INSTALL_DIR/$APP_NAME"
+    LEGACY_APP="$INSTALL_DIR/$LEGACY_APP_NAME"
+    echo "Using $INSTALL_DIR because /Applications is not writable."
+fi
+
+/bin/mkdir -p "$INSTALL_DIR" || fail "could not create $INSTALL_DIR"
+[[ -w "$INSTALL_DIR" ]] || fail "cannot write to $INSTALL_DIR"
 
 if [[ -e "$TARGET_APP" ]]; then
+    [[ "$(bundle_identifier "$TARGET_APP")" == "$BUNDLE_IDENTIFIER" ]] \
+        || fail "$TARGET_APP belongs to a different application"
     PREVIOUS_APP_MOVED=1
     if ! /bin/mv "$TARGET_APP" "$BACKUP_APP"; then
         PREVIOUS_APP_MOVED=0
@@ -107,26 +164,32 @@ if [[ -e "$TARGET_APP" ]]; then
     fi
 fi
 
-if ! COPYFILE_DISABLE=1 /usr/bin/ditto "$SOURCE_APP" "$TARGET_APP"; then
-    /bin/rm -rf "$TARGET_APP"
-    if [[ -e "$BACKUP_APP" ]]; then
-        /bin/mv "$BACKUP_APP" "$TARGET_APP"
+if [[ -e "$LEGACY_APP" ]]; then
+    [[ "$(bundle_identifier "$LEGACY_APP")" == "$BUNDLE_IDENTIFIER" ]] \
+        || fail "$LEGACY_APP belongs to a different application"
+    LEGACY_APP_MOVED=1
+    if ! /bin/mv "$LEGACY_APP" "$BACKUP_LEGACY_APP"; then
+        LEGACY_APP_MOVED=0
+        fail "could not remove the obsolete Dropoff.app installation"
     fi
-    fail "installation failed; the previous app was restored"
+fi
+
+INSTALL_STARTED=1
+if ! COPYFILE_DISABLE=1 /usr/bin/ditto "$SOURCE_APP" "$TARGET_APP"; then
+    fail "installation failed"
 fi
 
 if ! /usr/bin/codesign --verify --deep --strict "$TARGET_APP"; then
-    /bin/rm -rf "$TARGET_APP"
-    if [[ -e "$BACKUP_APP" ]]; then
-        /bin/mv "$BACKUP_APP" "$TARGET_APP"
-    fi
-    fail "the installed app failed verification; the previous app was restored"
+    fail "the installed app failed verification"
+fi
+if /usr/bin/xattr -p com.apple.quarantine "$TARGET_APP" >/dev/null 2>&1; then
+    fail "the locally built app unexpectedly has a quarantine attribute"
 fi
 
-PREVIOUS_APP_MOVED=0
-/bin/rm -rf "$BACKUP_APP"
+INSTALL_COMPLETE=1
+/bin/rm -rf "$BACKUP_APP" "$BACKUP_LEGACY_APP"
 
-echo "Installed Drop-off in $INSTALL_DIR"
+echo "Installed the locally built Drop-off app in $INSTALL_DIR"
 if [[ "$LAUNCH_AFTER_INSTALL" == "1" ]]; then
     /usr/bin/open "$TARGET_APP"
     echo "Drop-off is running in the menu bar."

@@ -1,0 +1,143 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7 (Node 24)
+
+      - name: Run Swift tests
+        env:
+          DROPOFF_MIN_TEST_COUNT: "68"
+        run: ./scripts/run-tests.sh
+
+      - name: Run standalone checks
+        run: ./scripts/run-checks.sh
+
+      - name: Build signed application archive
+        run: ./scripts/build-app.sh
+
+      - name: Verify application signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 .build/Drop-off.app
+          cmp LICENSE .build/Drop-off.app/Contents/Resources/LICENSE.txt
+          test "$(/usr/libexec/PlistBuddy \
+            -c 'Print :LSMultipleInstancesProhibited' \
+            .build/Drop-off.app/Contents/Info.plist)" = "true"
+
+      - name: Verify Universal 2 architectures
+        run: lipo .build/Drop-off.app/Contents/MacOS/Drop-off -verify_arch arm64 x86_64
+
+      - name: Verify application icon
+        run: |
+          test ! -e packaging/AppIcon.png
+          for icon in \
+            packaging/AppIconLight.png \
+            packaging/AppIconDark.png; do
+            test -f "$icon"
+            /usr/bin/sips -g hasAlpha "$icon" | /usr/bin/grep -q "hasAlpha: yes"
+          done
+          test -f packaging/AppIcon.icon/Assets/Hand.svg
+          test "$(/usr/bin/sips -g pixelWidth packaging/AppIconLight.png \
+            | /usr/bin/awk '/pixelWidth:/ { print $2 }')" = "1254"
+          test "$(/usr/bin/sips -g pixelHeight packaging/AppIconLight.png \
+            | /usr/bin/awk '/pixelHeight:/ { print $2 }')" = "1254"
+          test "$(/usr/bin/sips -g pixelWidth packaging/AppIconDark.png \
+            | /usr/bin/awk '/pixelWidth:/ { print $2 }')" = "1254"
+          test "$(/usr/bin/sips -g pixelHeight packaging/AppIconDark.png \
+            | /usr/bin/awk '/pixelHeight:/ { print $2 }')" = "1254"
+          /usr/bin/grep -q '<svg' packaging/AppIcon.icon/Assets/Hand.svg
+          ! /usr/bin/grep -Eq '<image|data:image|\.png' \
+            packaging/AppIcon.icon/Assets/Hand.svg
+          test "$(find packaging/AppIcon.icon/Assets -type f | wc -l \
+            | /usr/bin/tr -d ' ')" = "1"
+          jq -e '
+            .groups[0].shadow.opacity == 0
+            and .groups[0].translucency.enabled == false
+            and .groups[0].layers[0]["fill-specializations"][0].value["linear-gradient"]
+              == ["display-p3:0.00000,0.00000,0.00000,1.00000", "display-p3:0.00000,0.00000,0.00000,1.00000"]
+            and .groups[0].layers[0]["fill-specializations"][1].appearance == "dark"
+            and .groups[0].layers[0]["fill-specializations"][1].value["linear-gradient"]
+              == ["display-p3:1.00000,1.00000,1.00000,1.00000", "display-p3:1.00000,1.00000,1.00000,1.00000"]
+            and .groups[0].layers[0]["fill-specializations"][2].appearance == "tinted"
+            and .groups[0].layers[0]["fill-specializations"][2].value["linear-gradient"]
+              == ["display-p3:1.00000,1.00000,1.00000,1.00000", "display-p3:1.00000,1.00000,1.00000,1.00000"]
+          ' packaging/AppIcon.icon/icon.json
+          test -f .build/Drop-off.app/Contents/Resources/AppIcon.icns
+          test -f .build/Drop-off.app/Contents/Resources/AppIconDark.icns
+          test -f .build/Drop-off.app/Contents/Resources/Assets.car
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' .build/Drop-off.app/Contents/Info.plist)" = "AppIcon"
+          ! /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' \
+            .build/Drop-off.app/Contents/Info.plist >/dev/null 2>&1
+          /usr/bin/assetutil --validate-file .build/Drop-off.app/Contents/Resources/Assets.car
+          /usr/bin/assetutil --info .build/Drop-off.app/Contents/Resources/Assets.car \
+            > "$RUNNER_TEMP/drop-off-icon-assets.json"
+          jq -e 'type == "array" and length > 0' "$RUNNER_TEMP/drop-off-icon-assets.json"
+          ICON_STRINGS="$(jq -r '.. | strings' "$RUNNER_TEMP/drop-off-icon-assets.json")"
+          STACK_COUNT="$(printf '%s\n' "$ICON_STRINGS" \
+            | /usr/bin/grep -Eic 'icon.?image.?stack')"
+          test "$STACK_COUNT" -ge 2
+          printf '%s\n' "$ICON_STRINGS" | /usr/bin/grep -Eiq 'dark'
+
+      - name: Verify distribution packages
+        run: |
+          (
+            cd dist
+            shasum -a 256 -c Drop-off.app.zip.sha256
+            shasum -a 256 -c Drop-off.dmg.sha256
+          )
+          hdiutil verify dist/Drop-off.dmg
+          MOUNT_POINT="$RUNNER_TEMP/drop-off-dmg"
+          mkdir -p "$MOUNT_POINT"
+          hdiutil attach \
+            -quiet \
+            -nobrowse \
+            -readonly \
+            -mountpoint "$MOUNT_POINT" \
+            dist/Drop-off.dmg
+          trap 'hdiutil detach -quiet "$MOUNT_POINT"' EXIT
+          test -x "$MOUNT_POINT/Drop-off.app/Contents/MacOS/Drop-off"
+          test -L "$MOUNT_POINT/Applications"
+          cmp LICENSE "$MOUNT_POINT/LICENSE.txt"
+          cmp LICENSE "$MOUNT_POINT/Drop-off.app/Contents/Resources/LICENSE.txt"
+          codesign --verify --deep --strict "$MOUNT_POINT/Drop-off.app"
+          lipo "$MOUNT_POINT/Drop-off.app/Contents/MacOS/Drop-off" \
+            -verify_arch arm64 x86_64
+          hdiutil detach -quiet "$MOUNT_POINT"
+          trap - EXIT
+
+      - name: Verify local source installation
+        run: |
+          git archive \
+            --format=tar.gz \
+            --prefix=Drop-off-source/ \
+            HEAD \
+            -o "$RUNNER_TEMP/Drop-off-source.tar.gz"
+          DROPOFF_INSTALLER_TESTING=1 \
+            DROPOFF_SOURCE_REF="$GITHUB_SHA" \
+            DROPOFF_SOURCE_ARCHIVE_URL="file://$RUNNER_TEMP/Drop-off-source.tar.gz" \
+            DROPOFF_INSTALL_DIR="$RUNNER_TEMP/installed" \
+            DROPOFF_LAUNCH_AFTER_INSTALL=0 \
+            ./scripts/install.sh
+          INSTALLED_APP="$RUNNER_TEMP/installed/Drop-off.app"
+          test -x "$INSTALLED_APP/Contents/MacOS/Drop-off"
+          codesign --verify --deep --strict "$INSTALLED_APP"
+          lipo "$INSTALLED_APP/Contents/MacOS/Drop-off" \
+            -verify_arch arm64 x86_64
+          test "$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleShortVersionString' \
+            "$INSTALLED_APP/Contents/Info.plist")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleVersion' \
+            "$INSTALLED_APP/Contents/Info.plist")" = "5"
+          ! xattr -p com.apple.quarantine "$INSTALLED_APP"
